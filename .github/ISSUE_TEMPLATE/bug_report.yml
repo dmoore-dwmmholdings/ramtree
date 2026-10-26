@@ -1,0 +1,42 @@
+name: Bug report
+description: Something is wrong or a memory figure looks incorrect
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a reported figure looks wrong, please check the README's
+        "Understanding the numbers" section first — shared pages, compressed
+        memory, and unreadable processes each cause expected discrepancies.
+
+  - type: input
+    id: version
+    attributes:
+      label: ramtree version
+      description: Output of `ramtree --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and build
+      description: 'e.g. Windows 11 Pro 26200, or macOS 15.4'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: elevated
+    attributes:
+      label: Were you running elevated (as Administrator, or with sudo)?
+      options: ['No', 'Yes']
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include what you expected, what you saw, and the process involved.
+    validations:
+      required: true
