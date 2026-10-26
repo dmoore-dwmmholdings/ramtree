@@ -315,11 +315,12 @@ impl Killer {
     /// True if the process that `pid` named at `start_time` is still running.
     ///
     /// The start time is what stops a stale tree from ending an unrelated
-    /// process that has since been given the same PID.
+    /// process that has since been given the same PID. A zombie has exited and
+    /// holds no memory; it stays listed only until its parent reaps it.
     pub fn is_alive(&self, pid: u32, start_time: u64) -> bool {
-        self.sys
-            .process(Pid::from_u32(pid))
-            .is_some_and(|p| p.start_time() == start_time)
+        self.sys.process(Pid::from_u32(pid)).is_some_and(|p| {
+            p.start_time() == start_time && p.status() != sysinfo::ProcessStatus::Zombie
+        })
     }
 
     /// Ask a process to exit, or with `force`, kill it outright.
