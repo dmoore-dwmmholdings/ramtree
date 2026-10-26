@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Show how much of a group's memory is on screen versus off screen, with a row
+  range and scrolling hint. Keep the current group name and its total separate
+  from system RAM statistics so long headers do not hide the group being viewed.
 - On macOS, show launchd's children at the top level instead of hiding unrelated
   apps inside one large launchd group. Preserve app subtrees and keep launchd
   protected from termination.

@@ -54,6 +54,8 @@ ramtree never ends a process it runs inside (its terminal, the terminal's parent
 
 **Sizes are resident memory**: the working set on Windows (Task Manager's "Working set" column) and the resident set size on macOS and Linux (Activity Monitor's "Real Mem").
 
+Opening a group shows its immediate children, largest first. The total includes **all** rows, including those below the screen. The footer shows the row range and accounts for the memory shown plus the memory off screen; use `↓` or `PgDn` to see more. Percentages are relative to the current group. For example, a simulator can total 9 GB across hundreds of individually small services. Figures are rounded for display.
+
 - **Shared pages count in every process that maps them.** System libraries and shared memory appear in each process's figure, so the per-process total can exceed the RAM actually in use.
 - **Swapped or compressed memory is not counted**, because it is not resident.
 - **The process total rarely matches "in use"**, because RAM also holds the kernel, drivers, file cache, and compressed memory, none of which belongs to one process.
