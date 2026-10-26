@@ -276,6 +276,9 @@ impl App {
         // Ending a process ramtree runs inside (its terminal, that terminal's
         // parent, …) would end ramtree partway through the list.
         let mut protected: HashSet<u32> = HashSet::new();
+        // The display omits parent links to launchd, but it is still an ancestor.
+        #[cfg(target_os = "macos")]
+        protected.insert(1);
         let me = std::process::id();
         if let Some(mut at) = self.tree.nodes.iter().position(|n| n.pid == Some(me)) {
             loop {
@@ -532,6 +535,24 @@ mod tests {
         app.perform_kill(&[alpha], true);
         assert!(app.tree.is_gone(alpha));
         assert_eq!(app.tree.nodes[app.tree.root].n_procs, 2);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn launchd_is_protected_without_a_display_parent_link() {
+        // Deliberately stale start time: a regression can only remove the
+        // synthetic row, never send a signal to the real launchd.
+        for force in [false, true] {
+            let tree = build(vec![info(1, None, "launchd", 100)], 1 << 30, 1 << 29);
+            let mut app = App::new(tree);
+            let launchd = find_node(&app, 1);
+
+            app.perform_kill(&[launchd], force);
+
+            assert!(!app.tree.is_gone(launchd));
+            assert_eq!(app.tree.nodes[app.tree.root].size, 100);
+            assert!(app.status.as_deref().unwrap().contains("skipped 1"));
+        }
     }
 
     /// A long-running child process this test owns and can safely kill.

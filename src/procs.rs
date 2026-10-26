@@ -150,6 +150,9 @@ impl Tree {
 }
 
 /// Read every process on the machine and return the tree.
+///
+/// On macOS, children of launchd (PID 1) appear at the top level so unrelated
+/// apps are not collected into a single system-wide group.
 pub fn scan(progress: &ScanProgress) -> Tree {
     let start = Instant::now();
     let mut sys = System::new();
@@ -173,7 +176,7 @@ pub fn scan(progress: &ScanProgress) -> Tree {
             progress.bytes.fetch_add(p.memory(), Ordering::Relaxed);
             ProcInfo {
                 pid: p.pid().as_u32(),
-                parent: p.parent().map(Pid::as_u32),
+                parent: display_parent(p.parent().map(Pid::as_u32)),
                 name: p.name().to_string_lossy().into_owned(),
                 memory: p.memory(),
                 start_time: p.start_time(),
@@ -184,6 +187,12 @@ pub fn scan(progress: &ScanProgress) -> Tree {
     let mut tree = build(procs, sys.total_memory(), sys.used_memory());
     tree.scan_secs = start.elapsed().as_secs_f64();
     tree
+}
+
+fn display_parent(parent: Option<u32>) -> Option<u32> {
+    // launchd starts unrelated apps and adopts orphaned processes.
+    // Keep their own subtrees, but do not group them all together.
+    parent.filter(|&pid| !cfg!(target_os = "macos") || pid != 1)
 }
 
 /// Arrange processes into a tree by parent PID.
@@ -533,5 +542,40 @@ mod tests {
         assert!(tree.nodes.iter().any(|n| n.pid == Some(me)));
         assert!(tree.total_ram > 0);
         assert!(tree.nodes[tree.root].size > 0);
+    }
+
+    #[test]
+    fn display_tree_keeps_apps_visible_on_macos() {
+        let procs = vec![
+            info(1, None, "launchd", 100, 10),
+            info(20, Some(1), "browser", 200, 20),
+            info(21, Some(20), "helper", 300, 30),
+            info(30, Some(1), "editor", 400, 20),
+        ]
+        .into_iter()
+        .map(|p| ProcInfo {
+            parent: display_parent(p.parent),
+            ..p
+        })
+        .collect();
+        let tree = build(procs, 1 << 30, 1 << 29);
+        let launchd = child_by_name(&tree, tree.root, "launchd (1)");
+        let app_parent = if cfg!(target_os = "macos") {
+            assert!(!tree.nodes[launchd].is_dir);
+            assert_eq!(tree.nodes[launchd].size, 100);
+            assert_eq!(tree.nodes[launchd].n_procs, 1);
+            tree.root
+        } else {
+            // Other platforms retain the ordinary PID 1 parent link.
+            launchd
+        };
+        let browser = child_by_name(&tree, app_parent, "browser (20)");
+        child_by_name(&tree, app_parent, "editor (30)");
+        child_by_name(&tree, browser, "helper (21)");
+        assert_eq!(tree.nodes[browser].size, 500);
+        assert_eq!(tree.nodes[browser].n_procs, 2);
+        assert_eq!(tree.nodes[tree.root].size, 1000);
+        assert_eq!(tree.nodes[tree.root].n_procs, 4);
+        assert_eq!(tree.errors, 0);
     }
 }

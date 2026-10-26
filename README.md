@@ -44,6 +44,8 @@ Requires Rust 1.95 or newer.
 
 A process that started other processes is a group, shown in cyan with a trailing `\`. Inside it, its own memory is the `[self]` row. Ending a group ends its whole subtree; ending its `[self]` row ends just that process.
 
+On macOS, children of `launchd` appear at the top level so you can compare apps directly. Each app's own process subtree stays grouped. `launchd` itself shows only its own memory and cannot be ended by ramtree.
+
 `d` sends SIGTERM on macOS and Linux. On Windows it asks the process's windows to close, as their close buttons would, so an app may stop to ask about unsaved work; processes with no window cannot be asked and need `D`. ramtree waits up to 3 seconds for them to exit and reports any still running. `D` is SIGKILL or `TerminateProcess`: immediate, and unsaved work is lost.
 
 ramtree never ends a process it runs inside (its terminal, the terminal's parent, and so on), and checks each process's start time first, so a stale view cannot end an unrelated process that has reused a PID.
