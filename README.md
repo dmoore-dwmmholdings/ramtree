@@ -44,6 +44,8 @@ Requires Rust 1.95 or newer.
 
 A process that started other processes is a group, shown in cyan with a trailing `\`. Inside it, its own memory is the `[self]` row. Ending a group ends its whole subtree; ending its `[self]` row ends just that process.
 
+On macOS, children of `launchd` appear at the top level so you can compare apps directly. Each app's own process subtree stays grouped. `launchd` itself shows only its own memory and cannot be ended by ramtree.
+
 `d` sends SIGTERM on macOS and Linux. On Windows it asks the process's windows to close, as their close buttons would, so an app may stop to ask about unsaved work; processes with no window cannot be asked and need `D`. ramtree waits up to 3 seconds for them to exit and reports any still running. `D` is SIGKILL or `TerminateProcess`: immediate, and unsaved work is lost.
 
 ramtree never ends a process it runs inside (its terminal, the terminal's parent, and so on), and checks each process's start time first, so a stale view cannot end an unrelated process that has reused a PID.
@@ -51,6 +53,8 @@ ramtree never ends a process it runs inside (its terminal, the terminal's parent
 ## Understanding the numbers
 
 **Sizes are resident memory**: the working set on Windows (Task Manager's "Working set" column) and the resident set size on macOS and Linux (Activity Monitor's "Real Mem").
+
+Opening a group shows its immediate children, largest first. The total includes **all** rows, including those below the screen. The footer shows the row range and accounts for the memory shown plus the memory off screen; use `↓` or `PgDn` to see more. Percentages are relative to the current group. For example, a simulator can total 9 GB across hundreds of individually small services. Figures are rounded for display.
 
 - **Shared pages count in every process that maps them.** System libraries and shared memory appear in each process's figure, so the per-process total can exceed the RAM actually in use.
 - **Swapped or compressed memory is not counted**, because it is not resident.

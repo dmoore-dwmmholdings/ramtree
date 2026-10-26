@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -15,15 +16,15 @@ const BAR_WIDTH: usize = 10;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let [header_area, table_area, footer_area] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
         Constraint::Length(2),
+        Constraint::Min(0),
+        Constraint::Length(3),
     ])
     .areas(f.area());
 
     draw_header(f, app, header_area);
-    draw_table(f, app, table_area);
-    draw_footer(f, app, footer_area);
+    let window = draw_table(f, app, table_area);
+    draw_footer(f, app, footer_area, window);
 
     match &app.mode {
         Mode::Confirm { force, targets } => draw_confirm(f, app, *force, targets),
@@ -35,30 +36,32 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let node = &app.tree.nodes[app.cwd];
-    let mut text = format!(
-        " {}  —  {}, {} processes  (RAM {} of {} in use)",
-        app.tree.path_of(app.cwd),
+    let totals = format!(
+        " — {} RSS, {} processes",
         format_size(node.size),
         format_count(node.n_procs),
+    );
+    let path_room = (area.width as usize).saturating_sub(totals.chars().count() + 1);
+    let title = format!(
+        " {}{totals}",
+        truncate_left(&app.tree.path_of(app.cwd), path_room)
+    );
+    let mut system = format!(
+        " RAM {} of {} in use | RSS includes shared pages",
         format_size(app.tree.used_ram),
         format_size(app.tree.total_ram),
     );
     if app.tree.errors > 0 {
-        text.push_str(&format!("  ({} unreadable)", format_count(app.tree.errors)));
+        system.push_str(&format!(" | {} unreadable", format_count(app.tree.errors)));
     }
-    // Keep the tail (current group + totals) visible when the path is long.
-    let text = truncate_left(&text, area.width as usize);
     f.render_widget(
-        Paragraph::new(text).style(
-            Style::new()
-                .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray),
-        ),
+        Paragraph::new(vec![Line::from(title).bold(), Line::from(system)])
+            .style(Style::new().bg(Color::DarkGray)),
         area,
     );
 }
 
-fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_table(f: &mut Frame, app: &mut App, area: Rect) -> Range<usize> {
     let total = app.tree.nodes[app.cwd].size.max(1);
     // One line of the area is the header, so it cannot hold data rows.
     let window = app.visible_range(area.height.saturating_sub(1) as usize);
@@ -136,11 +139,34 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
         };
         f.render_widget(msg, inner);
     }
+    window
 }
 
-fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
-    let [info_area, keys_area] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
+fn draw_footer(f: &mut Frame, app: &App, area: Rect, window: Range<usize>) {
+    let [summary_area, info_area, keys_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+
+    let shown: u64 = app.rows[window.clone()]
+        .iter()
+        .map(|&i| app.tree.nodes[i].size)
+        .sum();
+    let hidden = app.tree.nodes[app.cwd].size.saturating_sub(shown);
+    let range = if window.is_empty() {
+        "0".to_owned()
+    } else {
+        format!("{}–{}", window.start + 1, window.end)
+    };
+    let summary = format!(
+        " Rows {range} of {}: {} shown + {} off screen",
+        format_count(app.rows.len() as u64),
+        format_size(shown),
+        format_size(hidden),
+    );
+    f.render_widget(Paragraph::new(summary), summary_area);
 
     let info: Line = if let Some(status) = &app.status {
         Line::from(Span::styled(
@@ -162,7 +188,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     };
     f.render_widget(Paragraph::new(info), info_area);
 
-    let keys = " ↑↓ move  enter open  backspace up  space mark  c clear  d end process  D force kill  r refresh  q quit";
+    let keys = " ↑↓/PgDn scroll  enter open  ← up  space mark  d end  D kill  r refresh  q quit";
     f.render_widget(
         Paragraph::new(keys).style(Style::new().fg(Color::DarkGray)),
         keys_area,
@@ -370,10 +396,10 @@ mod tests {
                 .join("")
         };
         // Largest process first, bar left-aligned right after the % column.
-        assert!(line(2).contains("80.0% ████████   "), "row: {:?}", line(2));
-        assert!(line(2).contains("big (1)"));
-        assert!(line(3).contains("20.0% ██        "), "row: {:?}", line(3));
-        assert!(line(3).contains("small (2)"));
+        assert!(line(3).contains("80.0% ████████   "), "row: {:?}", line(3));
+        assert!(line(3).contains("big (1)"));
+        assert!(line(4).contains("20.0% ██        "), "row: {:?}", line(4));
+        assert!(line(4).contains("small (2)"));
     }
 
     /// Rendered data rows, in order, as trimmed name text.
@@ -382,8 +408,8 @@ mod tests {
         terminal.draw(|f| draw(f, app)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let mut out = Vec::new();
-        // Row 0 is the header line, then data rows until the footer.
-        for y in 2..h.saturating_sub(2) {
+        // Two header lines and a table heading precede the data rows.
+        for y in 3..h.saturating_sub(3) {
             let text: String = (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect();
             if let Some(tok) = text.split_whitespace().find(|t| t.starts_with('f')) {
                 out.push(tok.to_owned());
@@ -403,8 +429,8 @@ mod tests {
             terminal.draw(|f| draw(f, &mut app)).unwrap();
             let buf = terminal.backend().buffer().clone();
 
-            // Table occupies y=1 (header) then data rows from y=2.
-            let highlighted: Vec<u16> = (2..10)
+            // Table occupies y=2 (header) then data rows from y=3.
+            let highlighted: Vec<u16> = (3..9)
                 .filter(|&y| buf[(2, y)].style().bg == Some(Color::Blue))
                 .collect();
             assert_eq!(
@@ -414,7 +440,7 @@ mod tests {
                 highlighted.len()
             );
             // It must be the row holding the selection.
-            let expected_y = 2 + (app.selected - app.offset) as u16;
+            let expected_y = 3 + (app.selected - app.offset) as u16;
             assert_eq!(
                 highlighted[0], expected_y,
                 "n={n} selected={selected}: highlight on wrong row"
@@ -432,7 +458,7 @@ mod tests {
 
         // Find any full-block glyph and check its foreground.
         let mut found = false;
-        for y in 2..8u16 {
+        for y in 3..9u16 {
             for x in 0..80u16 {
                 if buf[(x, y)].symbol() == "█" {
                     assert_eq!(
@@ -518,5 +544,75 @@ mod tests {
         assert!(names.len() <= 12, "drew {} rows into 12 lines", names.len());
         assert_eq!(names.first().map(String::as_str), Some("f000000"));
         assert_eq!(names.get(1).map(String::as_str), Some("f000001"));
+    }
+
+    #[test]
+    fn large_group_explains_memory_beyond_the_screen() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut procs = vec![ProcInfo {
+            pid: 9000,
+            parent: None,
+            name: "launchd_sim".to_owned(),
+            memory: 0,
+            start_time: 0,
+        }];
+        procs.extend((0..256).map(|i| ProcInfo {
+            pid: 10_000 + i,
+            parent: Some(9000),
+            name: format!("service{i:03}"),
+            memory: 36 * 1024 * 1024,
+            start_time: 1,
+        }));
+        let mut app = App::new(build(procs, 24 << 30, 20 << 30));
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let line = |t: &Terminal<TestBackend>, y: u16| -> String {
+            (0..80)
+                .map(|x| t.backend().buffer()[(x, y)].symbol())
+                .collect()
+        };
+
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        assert!(line(&terminal, 0).contains("launchd_sim (9000) — 9.0 GB RSS, 257 processes"));
+        assert!(
+            line(&terminal, 21).contains("Rows 1–18 of 257: 648.0 MB shown + 8.4 GB off screen")
+        );
+        assert!(line(&terminal, 23).contains("PgDn scroll"));
+
+        // Marks and refresh messages must not obscure the accounting line.
+        app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.status = Some("Refreshed".to_owned());
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        assert!(line(&terminal, 21).contains("648.0 MB shown + 8.4 GB off screen"));
+
+        app.on_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        assert!(
+            line(&terminal, 21).contains("Rows 240–257 of 257: 612.0 MB shown + 8.4 GB off screen")
+        );
+
+        terminal.backend_mut().resize(80, 32);
+        terminal.autoresize().unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        assert!(
+            line(&terminal, 29).contains("Rows 232–257 of 257: 900.0 MB shown + 8.1 GB off screen")
+        );
+    }
+
+    #[test]
+    fn summary_handles_empty_and_fully_visible_lists() {
+        for (n, expected) in [
+            (0, "Rows 0 of 0: 0 B shown + 0 B off screen"),
+            (2, "Rows 1–2 of 2: 30 B shown + 0 B off screen"),
+        ] {
+            let mut app = synthetic_app(n);
+            let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
+            let text: String = (0..80)
+                .map(|x| terminal.backend().buffer()[(x, 9)].symbol())
+                .collect();
+            assert!(text.contains(expected), "summary: {text:?}");
+        }
     }
 }

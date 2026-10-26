@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-26
+
+### Fixed
+
+- Show how much of a group's memory is on screen versus off screen, with a row
+  range and scrolling hint. Keep the current group name and its total separate
+  from system RAM statistics so long headers do not hide the group being viewed.
+- On macOS, show launchd's children at the top level instead of hiding unrelated
+  apps inside one large launchd group. Preserve app subtrees and keep launchd
+  protected from termination.
+
 ## [0.1.0] - 2026-10-25
 
 ### Added
